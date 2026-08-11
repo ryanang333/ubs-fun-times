@@ -238,8 +238,9 @@ def get_strategy_profile_for_table(
         profile["bluff_max"] -= 1
 
     if on_button:
-        profile["bet_equity"] -= 0.03
-        profile["call_margin"] -= 0.03
+        profile["medium"] -= 1
+        profile["bet_equity"] -= 0.05
+        profile["call_margin"] -= 0.05
         profile["bluff_max"] += 1
 
     profile["bluff_max"] = max(3, profile["bluff_max"])
@@ -318,6 +319,23 @@ def estimate_post_reveal_equity(
             wins += 0.5
 
     return wins / total
+
+
+def adjust_equity_for_multiway(equity, live_opponents):
+    """
+    Reduce one-on-one equity estimates when more than one opponent is still
+    live in the hand.
+
+    The raw showdown model is heads-up; in crowded-table play we want to be
+    more conservative after the reveal because the hand has to hold up against
+    everyone still in the pot.
+    """
+
+    if live_opponents <= 1:
+        return equity
+
+    pressure_factor = 0.92 ** (live_opponents - 1)
+    return equity * pressure_factor
 
 
 # ============================================================
@@ -583,6 +601,11 @@ def decide_post_reveal(state, opponent):
         your_number,
         community,
         table_rule
+    )
+
+    equity = adjust_equity_for_multiway(
+        equity,
+        live_opponents
     )
 
     required_equity = calculate_required_equity(

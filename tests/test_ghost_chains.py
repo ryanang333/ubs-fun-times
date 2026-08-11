@@ -144,3 +144,81 @@ def test_transactions_outside_24_hour_window_are_evicted():
         )
 
     assert response.get_json()["transactions"][-1]["riskScore"] == 0.0
+
+
+def test_shared_identity_across_disconnected_components_adds_coordination_signal():
+    with app.test_client() as client:
+        client.post("/ghost-chains/reset", json={"clearTransactions": True})
+        transactions = [
+            {
+                "txId": f"identity-{index}",
+                "fromUserId": source,
+                "toUserId": target,
+                "amount": 1,
+                "createdAt": f"2026-06-08T12:0{index}:00Z",
+                "ipAddress": "10.0.0.1",
+            }
+            for index, (source, target) in enumerate(
+                [("M", "A"), ("C", "H"), ("O", "S")]
+            )
+        ]
+        response = client.post(
+            "/ghost-chains/transactions", json={"transactions": transactions}
+        )
+
+    scores = [item["riskScore"] for item in response.get_json()["transactions"]]
+    assert scores == [0.0, 0.06, 0.12]
+
+
+def test_ip_and_device_are_independent_identity_dimensions():
+    with app.test_client() as client:
+        client.post("/ghost-chains/reset", json={"clearTransactions": True})
+        common = {
+            "amount": 1,
+            "ipAddress": "10.0.0.1",
+            "deviceId": "shared-device",
+        }
+        transactions = [
+            {
+                **common,
+                "txId": "both-1",
+                "fromUserId": "M",
+                "toUserId": "A",
+                "createdAt": "2026-06-08T12:00:00Z",
+            },
+            {
+                **common,
+                "txId": "both-2",
+                "fromUserId": "C",
+                "toUserId": "H",
+                "createdAt": "2026-06-08T12:01:00Z",
+            },
+        ]
+        response = client.post(
+            "/ghost-chains/transactions", json={"transactions": transactions}
+        )
+
+    assert response.get_json()["transactions"][-1]["riskScore"] == 0.12
+
+
+def test_identity_alignment_strengthens_a_return():
+    with app.test_client() as client:
+        client.post("/ghost-chains/reset", json={"clearTransactions": True})
+        transactions = [
+            {
+                "txId": f"return-{index}",
+                "fromUserId": source,
+                "toUserId": target,
+                "amount": 1,
+                "createdAt": f"2026-06-08T12:0{index}:00Z",
+                "deviceId": "same-device",
+            }
+            for index, (source, target) in enumerate(
+                [("M", "A"), ("A", "C"), ("C", "M")]
+            )
+        ]
+        response = client.post(
+            "/ghost-chains/transactions", json={"transactions": transactions}
+        )
+
+    assert response.get_json()["transactions"][-1]["riskScore"] == 0.78

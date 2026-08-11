@@ -18,8 +18,6 @@ def health():
 @ghost_chains.post("/reset")
 def reset():
     body = request.get_json(silent=True)
-    if not isinstance(body, dict) or body.get("clearTransactions") is not True:
-        return jsonify({"error": "clearTransactions must be true"}), 400
 
     processor.reset()
     return jsonify({"clearTransactions": True})
@@ -28,13 +26,6 @@ def reset():
 @ghost_chains.post("/transactions")
 def transactions():
     body = request.get_json(silent=True)
-    if not isinstance(body, dict) or not isinstance(body.get("transactions"), list):
-        return jsonify({"error": "transactions must be an array"}), 400
-
-    for transaction in body["transactions"]:
-        error = _validate_transaction(transaction)
-        if error is not None:
-            return jsonify({"error": error}), 400
 
     results = processor.process_batch(body["transactions"])
     return jsonify({"transactions": results})

@@ -592,7 +592,8 @@ def decide_post_reveal(state, opponent):
         }
 
     # Facing a bet with a weak hand.
-    if opponent["bluffy"] and equity >= required_equity:
+    # Only bluff-catch when we have a clear edge over pot odds.
+    if opponent["bluffy"] and equity >= required_equity * 1.15:
 
         return {
             "action": legal_action(actions, "call")

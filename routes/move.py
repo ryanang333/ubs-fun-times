@@ -486,7 +486,7 @@ def decide_post_reveal(state, opponent):
     # PAIR
     # --------------------------------------------------------
 
-    if is_pair(your_number, community, table_rule):
+    if table_rule != "low_ball" and is_pair(your_number, community, table_rule):
 
         if "raise" in actions:
 
@@ -703,7 +703,11 @@ def decide_move(state):
         community = state["community_number"]
 
         if community is not None:
-            has_pair = is_pair(your_number, community, table_rule)
+            has_pair = table_rule != "low_ball" and is_pair(
+                your_number,
+                community,
+                table_rule
+            )
             is_strong = get_strategy_strength(your_number, table_rule) >= 12
 
             if not has_pair and not is_strong:

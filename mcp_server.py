@@ -180,4 +180,11 @@ def shapes_tool(image_base64: str, callback_url: str | None = None) -> dict:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="http", path="/mcp", host="0.0.0.0", port=int(os.environ.get("MCP_PORT", 8001)))
+    mcp.run(
+        transport="http",
+        path="/mcp",
+        host="0.0.0.0",
+        port=int(os.environ.get("MCP_PORT", 8001)),
+        stateless_http=True,
+        json_response=True,
+    )

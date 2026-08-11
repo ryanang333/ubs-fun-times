@@ -153,6 +153,27 @@ def get_strategy_strength(your_number, table_rule="standard"):
     return your_number
 
 
+def get_strategy_profile(table_rule="standard"):
+    if table_rule == "low_ball":
+        return {
+            "very_strong": 11,
+            "medium": 7,
+            "bluff_max": 6,
+            "bet_equity": 0.50,
+            "call_margin": 1.00,
+            "bluff_call_margin": 1.05,
+        }
+
+    return {
+        "very_strong": 12,
+        "medium": 8,
+        "bluff_max": 5,
+        "bet_equity": 0.55,
+        "call_margin": 1.10,
+        "bluff_call_margin": 1.15,
+    }
+
+
 def estimate_pre_reveal_equity(your_number, table_rule="standard"):
     """
     Rough estimate of how often our number beats a random
@@ -322,6 +343,7 @@ def decide_pre_reveal(state, opponent):
     to_call = state["to_call"]
     actions = state["legal_actions"]
     table_rule = state.get("table_rule", "standard") or "standard"
+    profile = get_strategy_profile(table_rule)
 
     equity = estimate_pre_reveal_equity(your_number, table_rule)
     required_equity = calculate_required_equity(pot, to_call)
@@ -331,7 +353,7 @@ def decide_pre_reveal(state, opponent):
     # Very strong numbers
     # --------------------------------------------------------
 
-    if strategy_strength >= 12:
+    if strategy_strength >= profile["very_strong"]:
 
         if "raise" in actions:
             amount = choose_raise_amount(
@@ -364,12 +386,12 @@ def decide_pre_reveal(state, opponent):
     # Medium numbers
     # --------------------------------------------------------
 
-    if strategy_strength >= 8:
+    if strategy_strength >= profile["medium"]:
 
         # If the opponent is very aggressive, don't blindly
         # fight every pot.
         if opponent["very_aggressive"] and to_call > 0:
-            if equity >= required_equity * 1.25:
+            if equity >= required_equity * profile["call_margin"]:
                 return {"action": legal_action(actions, "call")}
 
             return {
@@ -380,7 +402,7 @@ def decide_pre_reveal(state, opponent):
             }
 
         if to_call == 0:
-            if "bet" in actions and equity >= 0.60:
+            if "bet" in actions and equity >= profile["bet_equity"]:
                 amount = choose_raise_amount(
                     state,
                     your_number
@@ -427,7 +449,7 @@ def decide_pre_reveal(state, opponent):
     if (
         "bet" in actions
         and opponent["passive"]
-        and strategy_strength <= 5
+        and strategy_strength <= profile["bluff_max"]
     ):
         amount = choose_raise_amount(
             state,
@@ -458,6 +480,7 @@ def decide_post_reveal(state, opponent):
     to_call = state["to_call"]
     actions = state["legal_actions"]
     table_rule = state.get("table_rule", "standard") or "standard"
+    profile = get_strategy_profile(table_rule)
 
     strength = evaluate_strength(
         your_number,
@@ -523,7 +546,7 @@ def decide_post_reveal(state, opponent):
     # Very strong non-pair: 13 / 12
     # --------------------------------------------------------
 
-    if strategy_strength >= 12:
+    if strategy_strength >= profile["very_strong"]:
 
         if to_call > 0:
 
@@ -575,11 +598,11 @@ def decide_post_reveal(state, opponent):
     # Medium/strong non-pair
     # --------------------------------------------------------
 
-    if strategy_strength >= 8:
+    if strategy_strength >= profile["medium"]:
 
         if to_call > 0:
 
-            if equity >= required_equity * 1.10:
+            if equity >= required_equity * profile["call_margin"]:
 
                 return {
                     "action": legal_action(
@@ -590,7 +613,7 @@ def decide_post_reveal(state, opponent):
 
             # Against a bluffy opponent, give them
             # a little more credit for aggression.
-            if opponent["bluffy"] and equity >= required_equity:
+            if opponent["bluffy"] and equity >= required_equity * profile["bluff_call_margin"]:
 
                 return {
                     "action": legal_action(
@@ -604,7 +627,7 @@ def decide_post_reveal(state, opponent):
             }
 
         # Nobody has bet.
-        if "bet" in actions and equity >= 0.55:
+        if "bet" in actions and equity >= profile["bet_equity"]:
 
             amount = choose_raise_amount(
                 state,

@@ -23,6 +23,12 @@ DISCONNECTED_IDENTITY_BONUS = 0.06
 STRUCTURAL_IDENTITY_BONUS = 0.08
 MAX_DISCONNECTED_IDENTITY_BONUS = 0.18
 
+CONSISTENT_DECAY_BONUS = 0.02
+BRANCH_RETENTION_BONUS = 0.06
+VALUE_REVERSAL_BONUS = 0.50
+LOCAL_VALUE_INCREASE_BONUS = 0.12
+MIN_RETAINED_RATIO = 0.85
+
 
 @dataclass(frozen=True)
 class ActiveTransaction:
@@ -67,7 +73,11 @@ class GhostChainsProcessor:
                 identity_score = self._identity_score(
                     transaction, adjacency, structural_score
                 )
-                score = min(1.0, round(structural_score + identity_score, 6))
+                value_score = self._value_score(transaction, adjacency)
+                score = min(
+                    1.0,
+                    round(structural_score + identity_score + value_score, 6),
+                )
 
                 self._scores_by_tx_id[tx_id] = score
                 # Transactions older than the current active window are scored
@@ -116,6 +126,11 @@ class GhostChainsProcessor:
         for ancestor in _reachable_nodes(reverse, source):
             if ancestor != source and _is_reachable(adjacency, ancestor, target):
                 return CONVERGENCE_SCORE
+
+        # A new flow entering a node that already receives another flow is also
+        # convergence when the two upstream components were previously separate.
+        if reverse.get(target):
+            return CONVERGENCE_SCORE
 
         if source in nodes or target in nodes:
             return EXTENSION_SCORE
@@ -182,6 +197,85 @@ class GhostChainsProcessor:
             )
 
         return bonus
+
+    def _value_score(
+        self,
+        transaction: dict[str, Any],
+        adjacency: dict[str, set[str]],
+    ) -> float:
+        """Score amount progression inside the transaction's flow segment."""
+        previous_amounts, boundary = self._infer_value_segment(
+            transaction["fromUserId"], adjacency
+        )
+        if not previous_amounts:
+            return 0.0
+
+        amounts = previous_amounts + [float(transaction["amount"])]
+
+        # A reversal is meaningful only when at least two earlier hops already
+        # established a decreasing trajectory. This avoids comparing unrelated
+        # branch allocations as though they were one global ratio.
+        if len(previous_amounts) >= 3:
+            established_decay = all(
+                earlier > later
+                for earlier, later in zip(previous_amounts, previous_amounts[1:])
+            )
+            if established_decay and amounts[-1] > amounts[-2]:
+                return VALUE_REVERSAL_BONUS
+
+        if amounts[-1] > amounts[-2]:
+            return LOCAL_VALUE_INCREASE_BONUS
+
+        ratios = [
+            later / earlier
+            for earlier, later in zip(amounts, amounts[1:])
+            if earlier > 0
+        ]
+        retains_most_value = len(ratios) == len(amounts) - 1 and all(
+            MIN_RETAINED_RATIO <= ratio < 1.0 for ratio in ratios
+        )
+        if not retains_most_value:
+            return 0.0
+
+        if boundary == "branch":
+            return BRANCH_RETENTION_BONUS
+        if len(amounts) >= 4:
+            return CONSISTENT_DECAY_BONUS
+        return 0.0
+
+    def _infer_value_segment(
+        self,
+        source: str,
+        adjacency: dict[str, set[str]],
+    ) -> tuple[list[float], str | None]:
+        """Walk backward until flow becomes structurally ambiguous."""
+        amounts_reversed: list[float] = []
+        current = source
+        visited: set[str] = set()
+        boundary: str | None = None
+
+        while current not in visited:
+            visited.add(current)
+            incoming = [
+                item
+                for item in self._active
+                if item.transaction["toUserId"] == current
+            ]
+            if len(incoming) != 1:
+                if len(incoming) > 1:
+                    boundary = "convergence"
+                break
+
+            edge = incoming[0].transaction
+            amounts_reversed.append(float(edge["amount"]))
+            predecessor = edge["fromUserId"]
+            if len(adjacency.get(predecessor, ())) > 1:
+                boundary = "branch"
+                break
+            current = predecessor
+
+        amounts_reversed.reverse()
+        return amounts_reversed, boundary
 
 
 def parse_timestamp(value: str) -> datetime:

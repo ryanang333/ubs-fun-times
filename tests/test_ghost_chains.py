@@ -222,3 +222,85 @@ def test_identity_alignment_strengthens_a_return():
         )
 
     assert response.get_json()["transactions"][-1]["riskScore"] == 0.78
+
+
+def test_phase_three_value_examples_have_expected_ordering():
+    examples = [
+        [("M", "A", 10000), ("A", "C", 9910), ("C", "H", 9820.81), ("H", "N", 9732.42)],
+        [("M", "A", 10000), ("A", "C", 9800), ("A", "S", 5000), ("C", "H", 9700), ("S", "O", 4900)],
+        [("M", "A", 10000), ("A", "C", 9950), ("C", "H", 9800), ("H", "N", 9950)],
+        [("M", "A", 10000), ("A", "C", 9800), ("A", "S", 5000), ("C", "H", 9700), ("S", "H", 4950)],
+    ]
+
+    final_scores = []
+    with app.test_client() as client:
+        for example_index, edges in enumerate(examples):
+            client.post("/ghost-chains/reset", json={"clearTransactions": True})
+            transactions = [
+                {
+                    "txId": f"value-{example_index}-{index}",
+                    "fromUserId": source,
+                    "toUserId": target,
+                    "amount": amount,
+                    "createdAt": f"2026-06-08T12:0{index}:00Z",
+                }
+                for index, (source, target, amount) in enumerate(edges)
+            ]
+            response = client.post(
+                "/ghost-chains/transactions", json={"transactions": transactions}
+            )
+            final_scores.append(
+                response.get_json()["transactions"][-1]["riskScore"]
+            )
+
+    assert final_scores == [0.17, 0.21, 0.65, 0.51]
+    assert final_scores[0] == min(final_scores)
+    assert final_scores[2] == max(final_scores)
+
+
+def test_return_and_value_reversal_combine_and_remain_bounded():
+    with app.test_client() as client:
+        client.post("/ghost-chains/reset", json={"clearTransactions": True})
+        edges = [("M", "A", 10000), ("A", "C", 9800), ("C", "H", 9700), ("H", "A", 9850)]
+        transactions = [
+            {
+                "txId": f"cross-value-{index}",
+                "fromUserId": source,
+                "toUserId": target,
+                "amount": amount,
+                "createdAt": f"2026-06-08T12:0{index}:00Z",
+            }
+            for index, (source, target, amount) in enumerate(edges)
+        ]
+        response = client.post(
+            "/ghost-chains/transactions", json={"transactions": transactions}
+        )
+
+    assert response.get_json()["transactions"][-1]["riskScore"] == 1.0
+
+
+def test_disconnected_flows_can_converge_with_identity_and_value_signals():
+    with app.test_client() as client:
+        client.post("/ghost-chains/reset", json={"clearTransactions": True})
+        edges = [
+            ("M", "A", 10000, "10.0.0.1"),
+            ("C", "H", 10000, "10.0.0.1"),
+            ("A", "N", 9800, "10.0.0.1"),
+            ("H", "N", 10100, "10.0.0.2"),
+        ]
+        transactions = [
+            {
+                "txId": f"all-signals-{index}",
+                "fromUserId": source,
+                "toUserId": target,
+                "amount": amount,
+                "ipAddress": ip_address,
+                "createdAt": f"2026-06-08T12:0{index}:00Z",
+            }
+            for index, (source, target, amount, ip_address) in enumerate(edges)
+        ]
+        response = client.post(
+            "/ghost-chains/transactions", json={"transactions": transactions}
+        )
+
+    assert response.get_json()["transactions"][-1]["riskScore"] == 0.60

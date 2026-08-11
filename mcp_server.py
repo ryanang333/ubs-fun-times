@@ -20,6 +20,28 @@ mcp = FastMCP("ubs-fun-times")
 _events: list[dict] = []
 
 
+class StripTrailingSlashMiddleware:
+    """Treat "/mcp/" the same as "/mcp" (and similarly for any other route).
+
+    Routes here are registered without a trailing slash, but some HTTP
+    clients (including, apparently, the eval server) append one. Starlette's
+    own slash-redirect handling doesn't apply once these routes are merged
+    into a parent app's flat route list, so this normalizes the path before
+    routing happens.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            path = scope["path"]
+            if len(path) > 1 and path.endswith("/"):
+                scope = dict(scope)
+                scope["path"] = path.rstrip("/")
+        await self.app(scope, receive, send)
+
+
 @mcp.custom_route("/event", methods=["POST"])
 async def receive_event(request: Request) -> JSONResponse:
     """Telemetry sink: the evaluator POSTs one event per tool call attempt here."""
@@ -180,11 +202,9 @@ def shapes_tool(image_base64: str, callback_url: str | None = None) -> dict:
 
 
 if __name__ == "__main__":
-    mcp.run(
-        transport="http",
-        path="/mcp",
-        host="0.0.0.0",
-        port=int(os.environ.get("MCP_PORT", 8001)),
-        stateless_http=True,
-        json_response=True,
+    import uvicorn
+
+    http_app = StripTrailingSlashMiddleware(
+        mcp.http_app(path="/mcp", stateless_http=True, json_response=True)
     )
+    uvicorn.run(http_app, host="0.0.0.0", port=int(os.environ.get("MCP_PORT", 8001)))

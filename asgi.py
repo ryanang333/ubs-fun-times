@@ -11,13 +11,15 @@ from starlette.applications import Starlette
 from starlette.routing import Mount
 
 from app import app as flask_app
-from mcp_server import mcp
+from mcp_server import StripTrailingSlashMiddleware, mcp
 
 mcp_app = mcp.http_app(path="/mcp", stateless_http=True, json_response=True)
 
-app = Starlette(
-    routes=[*mcp_app.routes, Mount("/", app=WsgiToAsgi(flask_app))],
-    lifespan=mcp_app.lifespan,
+app = StripTrailingSlashMiddleware(
+    Starlette(
+        routes=[*mcp_app.routes, Mount("/", app=WsgiToAsgi(flask_app))],
+        lifespan=mcp_app.lifespan,
+    )
 )
 
 if __name__ == "__main__":

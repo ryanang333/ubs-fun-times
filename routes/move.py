@@ -102,25 +102,58 @@ def analyze_opponent(recent_hands, opponent_seat):
 # Hand evaluation
 # ============================================================
 
-def evaluate_strength(your_number, community_number):
+def is_pair(your_number, community_number, table_rule="standard"):
+    if table_rule == "wild_seven":
+        return your_number == 7 or your_number == community_number
+
+    return your_number == community_number
+
+
+def evaluate_strength(your_number, community_number, table_rule="standard"):
     """
-    Return a numerical strength score.
+    Return a numerical strength score for showdown evaluation.
 
-    Pair beats EVERY non-pair.
-
-    Pair 13 = 113
-    Pair 1  = 101
-    Normal 13 = 13
-    Normal 1  = 1
+    The active table rule changes what counts as a strong hand.
     """
 
-    if community_number is not None and your_number == community_number:
+    if community_number is not None and is_pair(
+        your_number,
+        community_number,
+        table_rule
+    ):
+        if table_rule == "low_ball":
+            return -your_number
+
+        if table_rule == "pair_bounty":
+            return 105 + your_number
+
+        if table_rule == "wild_seven":
+            pair_value = community_number
+            if your_number == 7 and community_number != 7:
+                pair_value = 7
+            return 100 + pair_value
+
         return 100 + your_number
+
+    if table_rule == "low_ball":
+        return 100 - your_number
 
     return your_number
 
 
-def estimate_pre_reveal_equity(your_number):
+def get_strategy_strength(your_number, table_rule="standard"):
+    """
+    Map a hand to the same rough strength buckets used by the strategy
+    logic, while respecting the active table rule.
+    """
+
+    if table_rule == "low_ball":
+        return 14 - your_number
+
+    return your_number
+
+
+def estimate_pre_reveal_equity(your_number, table_rule="standard"):
     """
     Rough estimate of how often our number beats a random
     opponent number before seeing the community number.
@@ -136,10 +169,15 @@ def estimate_pre_reveal_equity(your_number):
 
     for opponent_number in range(1, 14):
         for community in range(1, 14):
-            my_strength = evaluate_strength(your_number, community)
+            my_strength = evaluate_strength(
+                your_number,
+                community,
+                table_rule
+            )
             opponent_strength = evaluate_strength(
                 opponent_number,
-                community
+                community,
+                table_rule
             )
 
             total += 1
@@ -152,7 +190,11 @@ def estimate_pre_reveal_equity(your_number):
     return wins / total
 
 
-def estimate_post_reveal_equity(your_number, community_number):
+def estimate_post_reveal_equity(
+    your_number,
+    community_number,
+    table_rule="standard"
+):
     """
     After reveal, opponent's number is still uniformly distributed
     from 1-13.
@@ -165,13 +207,15 @@ def estimate_post_reveal_equity(your_number, community_number):
 
     my_strength = evaluate_strength(
         your_number,
-        community_number
+        community_number,
+        table_rule
     )
 
     for opponent_number in range(1, 14):
         opponent_strength = evaluate_strength(
             opponent_number,
-            community_number
+            community_number,
+            table_rule
         )
 
         if my_strength > opponent_strength:
@@ -277,15 +321,17 @@ def decide_pre_reveal(state, opponent):
     pot = state["pot"]
     to_call = state["to_call"]
     actions = state["legal_actions"]
+    table_rule = state.get("table_rule", "standard") or "standard"
 
-    equity = estimate_pre_reveal_equity(your_number)
+    equity = estimate_pre_reveal_equity(your_number, table_rule)
     required_equity = calculate_required_equity(pot, to_call)
+    strategy_strength = get_strategy_strength(your_number, table_rule)
 
     # --------------------------------------------------------
     # Very strong numbers
     # --------------------------------------------------------
 
-    if your_number >= 12:
+    if strategy_strength >= 12:
 
         if "raise" in actions:
             amount = choose_raise_amount(
@@ -318,7 +364,7 @@ def decide_pre_reveal(state, opponent):
     # Medium numbers
     # --------------------------------------------------------
 
-    if your_number >= 8:
+    if strategy_strength >= 8:
 
         # If the opponent is very aggressive, don't blindly
         # fight every pot.
@@ -381,7 +427,7 @@ def decide_pre_reveal(state, opponent):
     if (
         "bet" in actions
         and opponent["passive"]
-        and your_number <= 5
+        and strategy_strength <= 5
     ):
         amount = choose_raise_amount(
             state,
@@ -411,15 +457,24 @@ def decide_post_reveal(state, opponent):
     pot = state["pot"]
     to_call = state["to_call"]
     actions = state["legal_actions"]
+    table_rule = state.get("table_rule", "standard") or "standard"
 
     strength = evaluate_strength(
         your_number,
-        community
+        community,
+        table_rule
+    )
+    strategy_strength = get_strategy_strength(your_number, table_rule)
+    sizing_strength = evaluate_strength(
+        your_number,
+        community,
+        "standard"
     )
 
     equity = estimate_post_reveal_equity(
         your_number,
-        community
+        community,
+        table_rule
     )
 
     required_equity = calculate_required_equity(
@@ -431,13 +486,13 @@ def decide_post_reveal(state, opponent):
     # PAIR
     # --------------------------------------------------------
 
-    if your_number == community:
+    if is_pair(your_number, community, table_rule):
 
         if "raise" in actions:
 
             amount = choose_raise_amount(
                 state,
-                strength
+                sizing_strength
             )
 
             return {
@@ -449,7 +504,7 @@ def decide_post_reveal(state, opponent):
 
             amount = choose_raise_amount(
                 state,
-                strength
+                sizing_strength
             )
 
             return {
@@ -468,7 +523,7 @@ def decide_post_reveal(state, opponent):
     # Very strong non-pair: 13 / 12
     # --------------------------------------------------------
 
-    if your_number >= 12:
+    if strategy_strength >= 12:
 
         if to_call > 0:
 
@@ -481,7 +536,7 @@ def decide_post_reveal(state, opponent):
                 ):
                     amount = choose_raise_amount(
                         state,
-                        strength
+                        sizing_strength
                     )
 
                     return {
@@ -504,7 +559,7 @@ def decide_post_reveal(state, opponent):
 
             amount = choose_raise_amount(
                 state,
-                strength
+                sizing_strength
             )
 
             return {
@@ -520,7 +575,7 @@ def decide_post_reveal(state, opponent):
     # Medium/strong non-pair
     # --------------------------------------------------------
 
-    if your_number >= 8:
+    if strategy_strength >= 8:
 
         if to_call > 0:
 
@@ -553,7 +608,7 @@ def decide_post_reveal(state, opponent):
 
             amount = choose_raise_amount(
                 state,
-                strength
+                sizing_strength
             )
 
             return {
@@ -578,7 +633,7 @@ def decide_post_reveal(state, opponent):
         ):
             amount = choose_raise_amount(
                 state,
-                strength,
+                your_number,
                 bluff=True
             )
 
@@ -639,6 +694,7 @@ def decide_move(state):
     # --------------------------------------------------------
 
     stack = state["your_stack"]
+    table_rule = state.get("table_rule", "standard") or "standard"
 
     if stack <= 15:
 
@@ -647,10 +703,10 @@ def decide_move(state):
         community = state["community_number"]
 
         if community is not None:
-            is_pair = your_number == community
-            is_strong = your_number >= 12
+            has_pair = is_pair(your_number, community, table_rule)
+            is_strong = get_strategy_strength(your_number, table_rule) >= 12
 
-            if not is_pair and not is_strong:
+            if not has_pair and not is_strong:
 
                 if state["to_call"] > 0:
                     return {

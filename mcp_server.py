@@ -12,8 +12,25 @@ import cv2
 import httpx
 import numpy as np
 from fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 mcp = FastMCP("ubs-fun-times")
+
+_events: list[dict] = []
+
+
+@mcp.custom_route("/event", methods=["POST"])
+async def receive_event(request: Request) -> JSONResponse:
+    """Telemetry sink: the evaluator POSTs one event per tool call attempt here."""
+    try:
+        payload = await request.json()
+    except ValueError:
+        return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+
+    _events.append(payload)
+    print(f"[event] problem={payload.get('problem')!r} attempt={payload.get('attempt')!r} {payload}")
+    return JSONResponse({"received": True})
 
 
 def _report(callback_url: str | None, result: dict) -> None:

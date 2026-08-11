@@ -3,6 +3,7 @@ import os
 from flask import Flask
 
 from routes.hello import hello
+from routes.solve import solve
 
 
 app = Flask(__name__)
@@ -10,6 +11,7 @@ app = Flask(__name__)
 
 def register_routes(flask_app: Flask) -> None:
     flask_app.add_url_rule("/", "hello", hello, methods=["GET"])
+    flask_app.add_url_rule("/solve", "solve", solve, methods=["POST"])
 
 
 register_routes(app)

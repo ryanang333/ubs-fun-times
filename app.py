@@ -15,7 +15,7 @@ def register_routes(flask_app: Flask) -> None:
     flask_app.add_url_rule("/", "hello", hello, methods=["GET"])
     flask_app.add_url_rule("/solve", "solve", solve, methods=["POST"])
     flask_app.add_url_rule("/health", "health", health, methods=["GET"])
-    flask_app.add_url_rule("/move", "move", move, method=["POST"])
+    flask_app.add_url_rule("/move", "move", move, methods=["POST"])
 
 
 register_routes(app)

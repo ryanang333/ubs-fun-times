@@ -98,6 +98,55 @@ def analyze_opponent(recent_hands, opponent_seat):
     return stats
 
 
+def analyze_table_opponents(recent_hands, opponent_seats):
+    opponent_profiles = [
+        analyze_opponent(recent_hands, opponent_seat)
+        for opponent_seat in opponent_seats
+    ]
+
+    if not opponent_profiles:
+        return {
+            "hands": 0,
+            "pre_raises": 0,
+            "post_bets": 0,
+            "post_raises": 0,
+            "folds": 0,
+            "calls": 0,
+            "showdowns": 0,
+            "weak_showdowns": 0,
+            "strong_showdowns": 0,
+            "aggressive": False,
+            "very_aggressive": False,
+            "passive": False,
+            "bluffy": False,
+            "live_opponents": 0,
+        }
+
+    summary = {
+        "hands": 0,
+        "pre_raises": 0,
+        "post_bets": 0,
+        "post_raises": 0,
+        "folds": 0,
+        "calls": 0,
+        "showdowns": 0,
+        "weak_showdowns": 0,
+        "strong_showdowns": 0,
+    }
+
+    for profile in opponent_profiles:
+        for key in summary:
+            summary[key] += profile[key]
+
+    summary["aggressive"] = any(profile["aggressive"] for profile in opponent_profiles)
+    summary["very_aggressive"] = any(profile["very_aggressive"] for profile in opponent_profiles)
+    summary["passive"] = all(profile["passive"] for profile in opponent_profiles)
+    summary["bluffy"] = any(profile["bluffy"] for profile in opponent_profiles)
+    summary["live_opponents"] = len(opponent_profiles)
+
+    return summary
+
+
 # ============================================================
 # Hand evaluation
 # ============================================================
@@ -154,24 +203,48 @@ def get_strategy_strength(your_number, table_rule="standard"):
 
 
 def get_strategy_profile(table_rule="standard"):
+    return get_strategy_profile_for_table(table_rule, live_opponents=1, on_button=False)
+
+
+def get_strategy_profile_for_table(
+    table_rule="standard",
+    live_opponents=1,
+    on_button=False
+):
     if table_rule == "low_ball":
-        return {
-            "very_strong": 11,
-            "medium": 7,
+        profile = {
+            "very_strong": 10,
+            "medium": 6,
             "bluff_max": 6,
-            "bet_equity": 0.50,
-            "call_margin": 1.00,
-            "bluff_call_margin": 1.05,
+            "bet_equity": 0.45,
+            "call_margin": 0.95,
+            "bluff_call_margin": 1.00,
+        }
+    else:
+        profile = {
+            "very_strong": 12,
+            "medium": 8,
+            "bluff_max": 5,
+            "bet_equity": 0.55,
+            "call_margin": 1.10,
+            "bluff_call_margin": 1.15,
         }
 
-    return {
-        "very_strong": 12,
-        "medium": 8,
-        "bluff_max": 5,
-        "bet_equity": 0.55,
-        "call_margin": 1.10,
-        "bluff_call_margin": 1.15,
-    }
+    if live_opponents >= 3:
+        profile["very_strong"] += 1
+        profile["medium"] += 1
+        profile["bet_equity"] += 0.05
+        profile["call_margin"] += 0.05
+        profile["bluff_max"] -= 1
+
+    if on_button:
+        profile["bet_equity"] -= 0.03
+        profile["call_margin"] -= 0.03
+        profile["bluff_max"] += 1
+
+    profile["bluff_max"] = max(3, profile["bluff_max"])
+
+    return profile
 
 
 def estimate_pre_reveal_equity(your_number, table_rule="standard"):
@@ -343,7 +416,13 @@ def decide_pre_reveal(state, opponent):
     to_call = state["to_call"]
     actions = state["legal_actions"]
     table_rule = state.get("table_rule", "standard") or "standard"
-    profile = get_strategy_profile(table_rule)
+    live_opponents = opponent.get("live_opponents", 1)
+    on_button = state.get("button_seat") == state.get("your_seat")
+    profile = get_strategy_profile_for_table(
+        table_rule,
+        live_opponents=live_opponents,
+        on_button=on_button,
+    )
 
     equity = estimate_pre_reveal_equity(your_number, table_rule)
     required_equity = calculate_required_equity(pot, to_call)
@@ -480,7 +559,13 @@ def decide_post_reveal(state, opponent):
     to_call = state["to_call"]
     actions = state["legal_actions"]
     table_rule = state.get("table_rule", "standard") or "standard"
-    profile = get_strategy_profile(table_rule)
+    live_opponents = opponent.get("live_opponents", 1)
+    on_button = state.get("button_seat") == state.get("your_seat")
+    profile = get_strategy_profile_for_table(
+        table_rule,
+        live_opponents=live_opponents,
+        on_button=on_button,
+    )
 
     strength = evaluate_strength(
         your_number,
@@ -691,16 +776,17 @@ def decide_move(state):
     your_seat = state["your_seat"]
 
     # Find opponent.
-    opponent_seat = None
+    opponent_seats = [
+        player["seat"]
+        for player in state["players"]
+        if player["seat"] != your_seat
+        and not player.get("folded", False)
+        and not player.get("busted", False)
+    ]
 
-    for player in state["players"]:
-        if player["seat"] != your_seat:
-            opponent_seat = player["seat"]
-            break
-
-    opponent = analyze_opponent(
+    opponent = analyze_table_opponents(
         state.get("recent_hands", []),
-        opponent_seat
+        opponent_seats
     )
 
     # --------------------------------------------------------
